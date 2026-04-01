@@ -1,26 +1,28 @@
-~~Identificar a distribuição das reclamações
+Objetivos específicos:
+
+Identificar a distribuição das reclamações
 ao longo do tempo, analisando a evolução
 do número de registros para verificar
 tendências de crescimento, redução ou
 períodos com maior volume de
-reclamações.~~
+reclamações.
 
-~~Analisar a distribuição geográfica das
+Analisar a distribuição geográfica das
 reclamações, observando em quais
 estados e localidades há maior
 concentração de registros, a fim de
 identificar possíveis diferenças regionais
-na experiência dos consumidores.~~
+na experiência dos consumidores.
 
-~~Verificar quais são as categorias de
+Verificar quais são as categorias de
 reclamações mais frequentes, permitindo
 entender quais tipos de problemas são
-mais relatados pelos clientes.~~ 
+mais relatados pelos clientes.
 
-~~Avaliar o status das reclamações,
+Avaliar o status das reclamações,
 identificando quantas foram resolvidas,
 não resolvidas ou permanecem em
-andamento.~~
+andamento.
 
 Analisar o percentual de reclamações
 resolvidas por categoria, com o objetivo
