@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
 import ast
 import matplotlib.pyplot as plt
 from wordcloud import WordCloud
@@ -15,6 +16,7 @@ aba_selecionada = st.sidebar.radio(
     [
         "Evolução Temporal",
         "Distribuição Geográfica",
+        "Distribuição Espacial",
         "Categorias Principais",
         "Status das Reclamações",
         "Eficiência de Resolução",
@@ -23,8 +25,9 @@ aba_selecionada = st.sidebar.radio(
 )
 
 with st.sidebar:
-    st.divider()
-    usar_fator_cumulativo = st.checkbox("Usar fator cumulativo (Casos por dia)", value=True)
+    # st.divider()
+    # usar_fator_cumulativo = st.checkbox("Usar fator cumulativo (Casos por dia)", value=False)
+    usar_fator_cumulativo = False
 
 
 @st.cache_data
@@ -50,6 +53,10 @@ def main():
     elif aba_selecionada == "Distribuição Geográfica":
         st.header("QA")
         render_geographical_heatmap(df_raw)
+        
+    elif aba_selecionada == "Distribuição Espacial":
+        st.header("QA")
+        render_pareto_estados(df_raw)
 
     elif aba_selecionada == "Categorias Principais":
         st.header("QA")
@@ -71,22 +78,22 @@ def render_status_analysis(df):
     st.subheader("Distribuição dos Status das Reclamações")
 
     # Determina o tipo de contagem baseado na checkbox
-    if usar_fator_cumulativo:
-        # Usa o peso do campo CASOS_POR_DIA
-        status_counts = df.groupby('STATUS')['CASOS_POR_DIA'].sum().reset_index()
-        status_counts.columns = ['STATUS', 'Quantidade']
-        label_analise = "Cumulativo (Casos por Dia)"
+    # if usar_fator_cumulativo:
+    #     # Usa o peso do campo CASOS_POR_DIA
+    #     status_counts = df.groupby('STATUS')['CASOS_POR_DIA'].sum().reset_index()
+    #     status_counts.columns = ['STATUS', 'Quantidade']
+    #     label_analise = "Cumulativo (Casos por Dia)"
         
-        # Para calcular resolvidas com peso
-        resolvidas = df[df['STATUS'].str.contains('RESOLVIDO', case=False)]['CASOS_POR_DIA'].sum()
-    else:
-        # Considera apenas a frequência (peso 1 por registro)
-        status_counts = df['STATUS'].value_counts().reset_index()
-        status_counts.columns = ['STATUS', 'Quantidade']
-        label_analise = "Frequência de Registros"
+    #     # Para calcular resolvidas com peso
+    #     resolvidas = df[df['STATUS'].str.contains('RESOLVIDO', case=False)]['CASOS_POR_DIA'].sum()
+    # else:
+    # Considera apenas a frequência (peso 1 por registro)
+    status_counts = df['STATUS'].value_counts().reset_index()
+    status_counts.columns = ['STATUS', 'Quantidade']
+    label_analise = "Frequência de Registros"
         
-        # Para calcular resolvidas por frequência
-        resolvidas = df[df['STATUS'].str.contains('RESOLVIDO', case=False)].shape[0]
+    # Para calcular resolvidas por frequência
+    resolvidas = df[df['STATUS'].str.contains('RESOLVIDO', case=False)].shape[0]
 
     total_reclamacoes = status_counts['Quantidade'].sum()
 
@@ -99,6 +106,7 @@ def render_status_analysis(df):
     col3.metric("Taxa de Solução", f"{taxa_resolucao:.1f}%")
 
     st.markdown("---")
+    
 
     # Gráfico de Rosca
     fig = px.pie(
@@ -111,6 +119,11 @@ def render_status_analysis(df):
         title=f"Distribuição por Status - {label_analise}"
     )
 
+    fig.update_layout(
+        height=700,
+        width=900
+    )
+    
     fig.update_traces(textposition='inside', textinfo='percent+label')
 
     st.plotly_chart(fig, use_container_width=True)
@@ -121,30 +134,83 @@ def render_status_analysis(df):
         status_counts_display['Quantidade'] = status_counts_display['Quantidade'].astype(int)
         st.table(status_counts_display.set_index('STATUS'))
 
+
 def render_geographical_heatmap(df):
     st.header("Distribuição geográfica das reclamações")
 
-    todos_estados = ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR',
-                     'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO']
+    df = df.copy()
+    df['DATA'] = pd.to_datetime(df['DATA'])
+
+    # =========================
+    # FILTRO TEMPORAL
+    # =========================
+    tipo_filtro = st.selectbox(
+        "Filtrar mapa por:",
+        ["Ano", "Mês"]
+    )
+
+    if tipo_filtro == "Ano":
+        anos_disponiveis = sorted(df['DATA'].dt.year.dropna().unique())
+        ano_selecionado = st.selectbox("Selecione o ano:", anos_disponiveis)
+        df_filtrado = df[df['DATA'].dt.year == ano_selecionado].copy()
+        titulo_periodo = f"Ano {ano_selecionado}"
+
+    else:
+        meses_pt = {
+            1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
+            5: "Maio", 6: "Junho", 7: "Julho", 8: "Agosto",
+            9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro"
+        }
+
+        df['ANO_MES'] = df['DATA'].dt.to_period('M')
+        opcoes_mes = sorted(df['ANO_MES'].dropna().unique())
+
+        opcoes_formatadas = {
+            periodo: f"{meses_pt[periodo.month]}/{periodo.year}"
+            for periodo in opcoes_mes
+        }
+
+        periodo_selecionado = st.selectbox(
+            "Selecione o mês:",
+            opcoes_mes,
+            format_func=lambda x: opcoes_formatadas[x]
+        )
+
+        df_filtrado = df[df['ANO_MES'] == periodo_selecionado].copy()
+        titulo_periodo = opcoes_formatadas[periodo_selecionado]
+
+    if df_filtrado.empty:
+        st.warning("Não há dados disponíveis para o período selecionado.")
+        return
+
+    # =========================
+    # BASE DE ESTADOS
+    # =========================
+    todos_estados = [
+        'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA',
+        'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN',
+        'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'
+    ]
     df_base = pd.DataFrame({'id': todos_estados})
 
-    # Determina o tipo de contagem baseado na checkbox
+    # =========================
+    # TIPO DE CONTAGEM
+    # =========================
     if usar_fator_cumulativo:
-        # Usa o peso do campo CASOS_POR_DIA
-        estado_counts = df.groupby('ESTADO')['CASOS_POR_DIA'].sum().reset_index()
+        estado_counts = df_filtrado.groupby('ESTADO')['CASOS_POR_DIA'].sum().reset_index()
         label_analise = "Cumulativo (Casos por Dia)"
     else:
-        # Considera apenas a frequência (peso 1 por registro)
-        estado_counts = df['ESTADO'].value_counts().reset_index()
+        estado_counts = df_filtrado['ESTADO'].value_counts().reset_index()
         label_analise = "Frequência de Registros"
-    
-    estado_counts.columns = ['id', 'total']
 
+    estado_counts.columns = ['id', 'total']
     estado_counts['log_total'] = np.log10(estado_counts['total'] + 1)
 
     estado_counts = pd.merge(df_base, estado_counts, on='id', how='left').fillna(0)
 
-    # 2. URL do GeoJSON do Brasil (Estados)
+    # =========================
+    # GEOJSON
+    # =========================
     geojson_url = "https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/brazil-states.geojson"
 
     fig = px.choropleth(
@@ -152,13 +218,13 @@ def render_geographical_heatmap(df):
         geojson=geojson_url,
         locations='id',
         featureidkey="properties.sigla",
-        color='log_total',  # Usamos o log para a cor
+        color='log_total',
         color_continuous_scale="Reds",
         hover_name='id',
         hover_data={'log_total': False, 'total': True},
         scope="south america",
         template="plotly_dark",
-        title=f"Mapa de Calor - {label_analise}"
+        title=f"Mapa de Calor - {label_analise} ({titulo_periodo})"
     )
 
     fig.update_geos(
@@ -167,55 +233,365 @@ def render_geographical_heatmap(df):
         projection_type="mercator"
     )
 
+    max_total = estado_counts['total'].max()
+
     fig.update_layout(
         height=700,
         margin={"r": 0, "t": 30, "l": 0, "b": 0},
         coloraxis_showscale=True,
         coloraxis_colorbar=dict(
             title="Escala (Log)",
-            tickvals=[np.log10(x) for x in [1, 10, 100, 1000] if x <= estado_counts['total'].max()],
-            ticktext=[str(x) for x in [1, 10, 100, 1000] if x <= estado_counts['total'].max()]
+            tickvals=[np.log10(x) for x in [1, 10, 100, 1000] if x <= max_total and x > 0],
+            ticktext=[str(x) for x in [1, 10, 100, 1000] if x <= max_total and x > 0]
         )
     )
 
     st.plotly_chart(fig, use_container_width=True)
 
+    # =========================
+    # ANÁLISE DE CONCENTRAÇÃO
+    # =========================
     df_sorted = estado_counts.sort_values(by='total', ascending=False)
     quantia_total = df_sorted['total'].sum()
 
-    top_20_count = int(len(df_sorted) * 0.2)
+    top_20_count = max(1, int(len(df_sorted) * 0.2))
     top_20_estados = df_sorted.head(top_20_count)
 
     soma_top_20 = top_20_estados['total'].sum()
-    percentual_top_20 = (soma_top_20 / quantia_total) * 100
+    percentual_top_20 = (soma_top_20 / quantia_total) * 100 if quantia_total > 0 else 0
 
     if percentual_top_20 >= 80:
         st.error(
-            f"**Aviso:** Os {top_20_count} estados com mais registros concentram **{percentual_top_20:.1f}%** de todas as reclamações. O volume está altamente centralizado.")
+            f"**Aviso:** Os {top_20_count} estados com mais registros concentram "
+            f"**{percentual_top_20:.1f}%** de todas as reclamações. "
+            f"O volume está altamente centralizado."
+        )
 
     st.markdown("---")
-
 
     df_top5 = df_sorted[['id', 'total']].copy()
     df_top5['total'] = df_top5['total'].astype(int)
     df_top5.columns = ['Estado', 'Quantidade']
 
-    with st.expander(f"Contagem bruta por estado ({label_analise})"):
+    with st.expander(f"Contagem bruta por estado ({label_analise} - {titulo_periodo})"):
         st.table(df_top5.set_index('Estado'))
+
+def render_pareto_estados(df):
+    st.header("Distribuição Espacial - Pareto dos Estados")
+
+    df = df.copy()
+    df['DATA'] = pd.to_datetime(df['DATA'])
+
+    # =========================
+    # FILTRO TEMPORAL
+    # =========================
+    tipo_filtro = st.selectbox(
+        "Filtrar Pareto por:",
+        ["Ano", "Mês"]
+    )
+
+    if tipo_filtro == "Ano":
+        anos_disponiveis = sorted(df['DATA'].dt.year.dropna().unique())
+        ano_selecionado = st.selectbox("Selecione o ano:", anos_disponiveis)
+        df_filtrado = df[df['DATA'].dt.year == ano_selecionado].copy()
+        titulo_periodo = f"Ano {ano_selecionado}"
+
+    else:
+        meses_pt = {
+            1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
+            5: "Maio", 6: "Junho", 7: "Julho", 8: "Agosto",
+            9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro"
+        }
+
+        df['ANO_MES'] = df['DATA'].dt.to_period('M')
+        opcoes_mes = sorted(df['ANO_MES'].dropna().unique())
+
+        opcoes_formatadas = {
+            periodo: f"{meses_pt[periodo.month]}/{periodo.year}"
+            for periodo in opcoes_mes
+        }
+
+        periodo_selecionado = st.selectbox(
+            "Selecione o mês:",
+            opcoes_mes,
+            format_func=lambda x: opcoes_formatadas[x]
+        )
+
+        df_filtrado = df[df['ANO_MES'] == periodo_selecionado].copy()
+        titulo_periodo = opcoes_formatadas[periodo_selecionado]
+
+    if df_filtrado.empty:
+        st.warning("Não há dados disponíveis para o período selecionado.")
+        return
+
+    # =========================
+    # CONTAGEM POR ESTADO
+    # =========================
+    if usar_fator_cumulativo:
+        estado_counts = df_filtrado.groupby('ESTADO')['CASOS_POR_DIA'].count().reset_index()
+        label_analise = "Cumulativo (Casos por Dia)"
+    else:
+        estado_counts = df_filtrado['ESTADO'].value_counts().reset_index()
+        label_analise = "Frequência de Registros"
+
+    estado_counts.columns = ['id', 'total']
+
+    # Remover estados com zero ou nulos
+    df_pareto = estado_counts.copy()
+    df_pareto = df_pareto[df_pareto['total'] > 0].copy()
+
+    if df_pareto.empty:
+        st.warning("Não há dados suficientes para gerar o gráfico de Pareto.")
+        return
+
+    # =========================
+    # CÁLCULOS DE PARETO
+    # =========================
+    df_pareto = df_pareto.sort_values(by='total', ascending=False).reset_index(drop=True)
+
+    total_geral = df_pareto['total'].sum()
+    df_pareto['percentual'] = (df_pareto['total'] / total_geral) * 100
+    df_pareto['percentual_acumulado'] = df_pareto['percentual'].cumsum()
+
+    # Estados críticos até atingir ~80%
+    estados_80 = df_pareto[df_pareto['percentual_acumulado'] <= 80]
+
+    if len(estados_80) < len(df_pareto):
+        estados_80 = df_pareto.iloc[:len(estados_80) + 1]
+
+    estados_criticos = estados_80['id'].tolist()
+
+    # =========================
+    # GRÁFICO DE PARETO
+    # =========================
+    fig = go.Figure()
+
+    # Barras
+    fig.add_trace(go.Bar(
+        x=df_pareto['id'],
+        y=df_pareto['total'],
+        name='Quantidade',
+        marker=dict(
+            color=['crimson' if x in estados_criticos else 'indianred' for x in df_pareto['id']]
+        ),
+        hovertemplate='<b>%{x}</b><br>Quantidade: %{y}<extra></extra>'
+    ))
+
+    # Linha acumulada
+    fig.add_trace(go.Scatter(
+        x=df_pareto['id'],
+        y=df_pareto['percentual_acumulado'],
+        name='% Acumulado',
+        mode='lines+markers',
+        yaxis='y2',
+        hovertemplate='<b>%{x}</b><br>Acumulado: %{y:.1f}%<extra></extra>'
+    ))
+
+    fig.update_layout(
+        template="plotly_dark",
+        title=f"Gráfico de Pareto - Estados Críticos ({label_analise} | {titulo_periodo})",
+        height=650,
+        margin=dict(t=60, b=40, l=40, r=40),
+        xaxis=dict(
+            title="Estado",
+            tickangle=-45
+        ),
+        yaxis=dict(
+            title="Quantidade de Reclamações",
+            side='left'
+        ),
+        yaxis2=dict(
+            title="Percentual Acumulado (%)",
+            overlaying='y',
+            side='right',
+            range=[0, 100]
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="center",
+            x=0.5
+        ),
+        hovermode="x unified"
+    )
+
+    # Linha horizontal de 80%
+    fig.add_shape(
+        type="line",
+        x0=-0.5,
+        x1=len(df_pareto) - 0.5,
+        y0=80,
+        y1=80,
+        xref="x",
+        yref="y2",
+        line=dict(dash="dash")
+    )
+
+    fig.add_annotation(
+        x=df_pareto['id'].iloc[min(len(df_pareto)-1, 2)],
+        y=78,
+        text="80%",
+        showarrow=False,
+        yref="y2"
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    # =========================
+    # INTERPRETAÇÃO
+    # =========================
+    qtd_criticos = len(estados_criticos)
+    perc_criticos = df_pareto[df_pareto['id'].isin(estados_criticos)]['percentual'].sum()
+
+    st.info(
+        f"**Estados críticos identificados pelo Pareto:** "
+        f"Os **{qtd_criticos} estados mais críticos** concentram aproximadamente "
+        f"**{perc_criticos:.1f}%** do total de reclamações em **{titulo_periodo}**."
+    )
+
+    # =========================
+    # TABELA
+    # =========================
+    with st.expander("Ver tabela de Pareto por estado"):
+        df_exibir = df_pareto[['id', 'total', 'percentual', 'percentual_acumulado']].copy()
+        df_exibir.columns = ['Estado', 'Quantidade', '% Individual', '% Acumulado']
+        df_exibir['Quantidade'] = df_exibir['Quantidade'].astype(int)
+        df_exibir['% Individual'] = df_exibir['% Individual'].round(2)
+        df_exibir['% Acumulado'] = df_exibir['% Acumulado'].round(2)
+
+        st.dataframe(df_exibir, use_container_width=True)
 
 def render_temporal_analysis(df):
     st.header("Evolução Temporal de Reclamações")
 
+    df = df.copy()
+    df['DATA'] = pd.to_datetime(df['DATA'])
+
+    # Consolidar por dia
+    df = df.groupby(df['DATA'].dt.date)['CASOS_POR_DIA'].count().reset_index()
     df['DATA'] = pd.to_datetime(df['DATA'])
     df = df.sort_values('DATA')
 
+    # Garantir continuidade diária
+    todas_datas = pd.date_range(df['DATA'].min(), df['DATA'].max(), freq='D')
+    df = (
+        df.set_index('DATA')
+          .reindex(todas_datas, fill_value=0)
+          .rename_axis('DATA')
+          .reset_index()
+    )
+
+    opcoes_janela = {
+        "1 dia (Diário)": "1D",
+        # "3 dias (Curto prazo)": "3D",
+        "7 dias (Semanal)": "7D",
+        "15 dias (Quinzena)": "15D",
+        "Mensal": "MS"
+    }
+
+    label_selecionada = st.selectbox(
+        "Selecione a janela de análise combinada:",
+        list(opcoes_janela.keys()),
+        index=2
+    )
+
+    frequencia = opcoes_janela[label_selecionada]
+
+    # =========================
+    # AGREGAÇÃO
+    # =========================
+    if frequencia == "MS":
+        ano_referencia = df['DATA'].dt.year.mode()[0]
+
+        todos_meses = pd.date_range(
+            start=f"{ano_referencia}-01-01",
+            end=f"{ano_referencia}-12-01",
+            freq="MS"
+        )
+
+        df_agregado = (
+            df.set_index('DATA')
+              .resample('MS')['CASOS_POR_DIA']
+              .sum()
+              .reindex(todos_meses, fill_value=0)
+              .reset_index()
+              .rename(columns={'index': 'DATA'})
+        )
+    else:
+        df_agregado = (
+            df.set_index('DATA')
+              .resample(frequencia)['CASOS_POR_DIA']
+              .sum()
+              .reset_index()
+        )
+
+    # =========================
+    # REMOVER PONTOS ZERO
+    # =========================
+    df_agregado = df_agregado[df_agregado['CASOS_POR_DIA'] > 0].copy()
+
+    # Evita erro caso tudo fique zerado
+    if df_agregado.empty:
+        st.warning("Não há dados positivos para exibir nessa agregação.")
+        return
+
+    # =========================
+    # RÓTULOS DO EIXO X
+    # =========================
+    if frequencia == "MS":
+        meses_pt = {
+            1: "Jan", 2: "Fev", 3: "Mar", 4: "Abr",
+            5: "Mai", 6: "Jun", 7: "Jul", 8: "Ago",
+            9: "Set", 10: "Out", 11: "Nov", 12: "Dez"
+        }
+
+        df_agregado['ROTULO_X'] = df_agregado['DATA'].dt.month.map(meses_pt)
+        titulo_y = "Reclamações por Mês"
+
+    elif frequencia == "1D":
+        df_agregado['ROTULO_X'] = df_agregado['DATA'].dt.strftime('%d/%m')
+        titulo_y = "Reclamações por Dia"
+
+    else:
+        df_agregado['ROTULO_X'] = df_agregado['DATA'].dt.strftime('%d/%m')
+        titulo_y = f"Reclamações por período ({label_selecionada})"
+
+    if frequencia == "MS":
+        tickvals = df_agregado['DATA']
+        ticktext = df_agregado['ROTULO_X']
+    else:
+        max_rotulos = 12
+        total_pontos = len(df_agregado)
+
+        if total_pontos <= max_rotulos:
+            tickvals = df_agregado['DATA']
+            ticktext = df_agregado['ROTULO_X']
+        else:
+            indices = np.linspace(0, total_pontos - 1, max_rotulos, dtype=int)
+            tickvals = df_agregado.iloc[indices]['DATA']
+            ticktext = df_agregado.iloc[indices]['ROTULO_X']
+
+    # =========================
+    # PICO
+    # =========================
+    pico_row = df_agregado.loc[df_agregado['CASOS_POR_DIA'].idxmax()]
+    data_pico = pico_row['DATA']
+    total_pico = int(pico_row['CASOS_POR_DIA'])
+
+    # =========================
+    # GRÁFICO DE LINHA
+    # =========================
     fig = px.line(
-        df,
+        df_agregado,
         x='DATA',
         y='CASOS_POR_DIA',
-        labels={'DATA': 'Data', 'CASOS_POR_DIA': 'Nº de Reclamações'},
-        template="plotly_dark",
-        markers=True
+        markers=True,
+        labels={
+            'DATA': 'Período',
+            'CASOS_POR_DIA': titulo_y
+        },
+        template="plotly_dark"
     )
 
     fig.update_layout(
@@ -224,32 +600,55 @@ def render_temporal_analysis(df):
         hovermode="x unified"
     )
 
-    fig.update_xaxes(title="Período Analisado", gridcolor='rgba(255,255,255,0.1)')
-    fig.update_yaxes(title="Volume Diário", gridcolor='rgba(255,255,255,0.1)')
+    fig.update_xaxes(
+        title="Períodos do Ano",
+        tickmode='array',
+        tickvals=tickvals,
+        ticktext=ticktext,
+        gridcolor='rgba(255,255,255,0.1)'
+    )
+
+    fig.update_yaxes(
+        title=titulo_y,
+        gridcolor='rgba(255,255,255,0.1)'
+    )
 
     st.plotly_chart(fig, use_container_width=True)
 
-    opcoes_janela = {
-        "3 dias (Curto prazo)": 3,
-        "7 dias (Semanal)": 7,
-        "15 dias (Quinzena)": 15,
-        "30 dias (Mensal)": 30
-    }
-    label_selecionada = st.selectbox("Selecione a janela de análise combinada:", list(opcoes_janela.keys()), index=1)
-    n_dias = opcoes_janela[label_selecionada]
+    # =========================
+    # TEXTO INFORMATIVO
+    # =========================
+    if frequencia == "MS":
+        meses_pt_extenso = {
+            1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
+            5: "Maio", 6: "Junho", 7: "Julho", 8: "Agosto",
+            9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro"
+        }
 
-    df = df.sort_values('DATA')
-    df['SOMA_MOVEL'] = df['CASOS_POR_DIA'].rolling(window=n_dias).sum()
+        mes_nome = meses_pt_extenso[data_pico.month]
 
-    pico_row = df.nlargest(1, 'SOMA_MOVEL').iloc[0]
-    data_fim = pico_row['DATA']
-    data_inicio = data_fim - pd.Timedelta(days=n_dias - 1)
-    total_periodo = int(pico_row['SOMA_MOVEL'])
+        st.info(
+            f"**Mês com maior volume:** "
+            f"{mes_nome}/{data_pico.year} "
+            f"registrou **{total_pico}** reclamações."
+        )
 
-    st.info(
-        f"**Período Crítico ({n_dias} dias):** {data_inicio.strftime('%d/%m')} a {data_fim.strftime('%d/%m')} "
-        f"concentrou **{total_periodo}** reclamações combinadas."
-    )
+    elif frequencia == "1D":
+        st.info(
+            f"**Dia com maior volume:** "
+            # f"{data_pico.strftime('%d/%m/%Y')} "
+            f"registrou **{total_pico}** reclamações."
+        )
+
+    else:
+        st.info(
+            f"**Maior volume em {label_selecionada}:** "
+            # f"{data_pico.strftime('%d/%m/%Y')} "
+            f"registrou **{total_pico}** reclamações agregadas."
+        )
+
+    with st.expander("Ver tabela agregada"):
+        st.dataframe(df_agregado, use_container_width=True)
 
 def render_filtered_segmented_analysis(df):
     st.header("Segmentação de Categorias Relevantes")
@@ -304,6 +703,7 @@ def render_textual_analysis(df):
     textos = df['DESCRICAO'].dropna().astype(str)
     texto_completo = " ".join(textos).lower()
 
+    # ALTERAR
     # 2. Definição de Stopwords em Português
     stopwords_pt = set([
         "a", "e", "o", "que", "de", "do", "da", "em", "um", "para", "é", "com",
@@ -314,7 +714,8 @@ def render_textual_analysis(df):
         "depois", "sem", "mesmo", "aos", "ter", "seus", "quem", "nas", "me",
         "esse", "eles", "estão", "você", "tinha", "foram", "essa", "num",
         "nem", "suas", "meu", "às", "minha", "têm", "numa", "pelos", "elas",
-        "este", "esta", "estes", "estas", "aquele", "aquela", "isto", "aquilo"
+        "este", "esta", "estes", "estas", "aquele", "aquela", "isto", "aquilo", "outro", "tive", "hoje", "aqui", "bem", "porém", "hora", "sendo","vez", "r", "casa", "agora", "lá", "onde", "são", "veze", "toda", "nao", "estou", "assim", "outra", "dado", "data",
+        "meus", "dia", "vou", "seria", "momento", "fui", "pra", "mail", "qual", "fiz", "coisa", "sou", "havia", "pois", "estava"
     ])
 
     # Opcional: Adicionar termos genéricos do seu negócio que sujam a análise
